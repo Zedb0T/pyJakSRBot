@@ -1,0 +1,163 @@
+import os
+import requests
+import json
+import discord
+from discord.ext import tasks, commands
+from discord import Embed, Intents
+from datetime import timedelta
+from discord import app_commands
+
+print_runs = True
+
+def print_keys(d, parent_key=''):
+    """Recursively prints all keys and their values in a nested dictionary."""
+    if isinstance(d, dict):
+        for k, v in d.items():
+            new_key = f"{parent_key}.{k}" if parent_key else k
+            if isinstance(v, dict):
+                print(new_key)
+                print_keys(v, new_key)
+            else:
+                print(f"{new_key} - {v}")
+
+class Run:
+    def __init__(self, link, user_names, time, category_name, game_id):
+        self.link = link
+        self.user_names = user_names
+        self.time = time
+        self.category_name = category_name
+        self.game_id = game_id
+
+    def __eq__(self, other):
+        if other is None:
+            return False
+        return self.link == other.link
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+
+class RunBot(commands.Bot):
+    def __init__(self, command_prefix, intents, **options):
+        super().__init__(command_prefix, intents=intents, **options)
+        self.synced = False
+        self.settings_dir = os.path.join(os.getcwd(), "settings")
+        self.token = self.read_file("discord.token")
+        self.runs_file_path = os.path.join(self.settings_dir, "runs.link")
+        self.run_links = self.load_run_links()
+        self.game_ids = self.read_file("game.ids").splitlines()
+        self.bot_name = self.read_file("bot.name")
+        self.image_link = self.read_file("image.link")
+        self.discord_channel_id = int(self.read_file("discord.channel"))
+        self.timer_interval = int(self.read_file("timer.interval")) * 1000
+        self.http_client = requests.Session()
+        self.http_client.headers.update({'Cache-Control': 'no-cache'})
+
+    def read_file(self, filename):
+        with open(os.path.join(self.settings_dir, filename), 'r') as file:
+            return file.read().strip()
+
+    def load_run_links(self):
+        if not os.path.exists(self.runs_file_path):
+            return []
+        with open(self.runs_file_path, 'r') as file:
+            return file.read().splitlines()
+
+    def save_run_links(self):
+        with open(self.runs_file_path, 'w') as file:
+            file.write("\n".join(self.run_links))
+
+
+    async def hello(self, interaction: discord.Interaction):
+        """Says hello!"""
+        await interaction.response.send_message(f'Hi, {interaction.user.mention}',ephemeral=True)
+
+    async def post_Run_Manually(self, interaction: discord.Interaction):
+        """Says hello!"""
+        await interaction.response.send_message(f'Hi this is a placeholder command and not implemented yet., {interaction.user.mention}',ephemeral=True)
+
+    @tasks.loop(seconds=30)  # timer interval is handled by a different mechanism in Python
+    async def timer_task(self):
+        await self.post_new_runs()
+
+    async def post_new_runs(self):
+        runs = []
+        for game_id in self.game_ids:
+            runs.extend(self.get_runs(game_id))
+
+        new_runs = self.get_new_runs(runs)
+
+        for new_run in new_runs:
+            embed = Embed(
+                title=f"A new '{new_run.category_name}' run is awaiting verification",
+                color=0x3498db
+            )
+            embed.set_footer(text=self.bot_name)
+            embed.set_thumbnail(url=self.image_link)
+            embed.set_thumbnail(url="https://www.speedrun.com/static/game/" + new_run.game_id + "/cover.png?v=c8fb842")
+            embed.add_field(name="Players:", value=new_run.user_names)
+            embed.add_field(name="Time:", value=str(new_run.time))
+            embed.description = f"[Link]({new_run.link})"
+
+            await self.discord_channel.send(embed=embed)
+
+        self.run_links = [run.link for run in runs]
+        self.save_run_links()
+
+    def get_runs(self, game_id):
+        response = self.http_client.get(f'https://www.speedrun.com/api/v1/runs?game={game_id}&status=new&embed=category,players')
+        response = self.http_client.get(f'https://www.speedrun.com/api/v1/runs?game={game_id}&status=verified&embed=category,players')
+        return self.parse_runs(response.json())
+
+    def get_new_runs(self, runs):
+        print(" ")
+        print("Getting new runs lol")
+        # return [run for run in runs if run.link not in self.run_links] for now always run the runs
+        return [run for run in runs]
+
+    def parse_runs(self, json_data):
+        runs = []
+        for run in json_data['data']:
+            link = run['weblink']
+            #user_names = " & ".join(player['names']['international'] for player in run['players']['data'])
+            user_names = "Xyphles"
+            print(str(user_names))
+            time = timedelta(seconds=run['times']['primary_t'])
+            category_name = run['category']['data']['name']
+            game_id = run['game']
+            runs.append(Run(link, user_names, time, category_name, game_id))
+
+            if print_runs:
+                print(str(run))
+                print("")
+                print("")
+                print("")
+                print_keys(run)
+        return runs
+
+    async def on_ready(self):
+
+        if not self.synced:
+            self.tree.add_command(
+            app_commands.Command(
+                name="manual_post_run",
+                description="Manually take in a SRC url and post the embed",
+                callback=self.post_Run_Manually,
+            )
+        )
+            await self.tree.sync()
+            # self.change_status.start()
+            self.synced = True
+
+        print(f'Logged in as {self.user.name}')
+        self.timer_task.start()
+        self.discord_channel = self.get_channel(self.discord_channel_id)
+
+intents = Intents.default()
+intents.messages = True
+bot = RunBot(command_prefix=commands.when_mentioned_or('$'), intents=intents)
+
+
+
+print("Starting bot with token:", bot.token)
+bot.run(bot.token)
