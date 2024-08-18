@@ -10,6 +10,21 @@ def print_keys(d, parent_key=''):
             else:
                 print(f"{new_key} - {v}")
 
+def create_dir_if_not_exist(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"Directory '{directory}' created.")
+    else:
+        print(f"Directory '{directory}' already exists.")
+
+def create_file_if_not_exist(filepath):
+    if not os.path.exists(filepath):
+        with open(filepath, 'w') as file:
+            pass  # Just open and close the file to create it
+        print(f"File '{filepath}' created.")
+    else:
+        print(f"File '{filepath}' already exists.")
+
 def read_file(filename, settings_dir):
     with open(os.path.join(settings_dir, filename), 'r') as file:
         return file.read().strip()
