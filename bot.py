@@ -139,7 +139,8 @@ class GameSelectionDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         selected_game_id = self.values[0]
         guild_id = interaction.guild.id
-        self.bot.settings_dir = os.path.join(self.bot.settings_dir, str(guild_id))
+        if str(guild_id) not in self.bot.settings_dir:
+            self.bot.settings_dir = os.path.join(self.bot.settings_dir, str(guild_id))
         url = f"https://www.speedrun.com/api/v1/games/{selected_game_id}/categories"
         response = self.bot.http_client.get(url)
         data = response.json()
@@ -174,6 +175,7 @@ class CategorySelectionDropdown(discord.ui.Select):
         categories = {}
         if "all" in selected_values:
             url = f"https://www.speedrun.com/api/v1/games/{self.game_id}/categories"
+            print(url)
             response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
             data = response.json()
 
@@ -185,6 +187,7 @@ class CategorySelectionDropdown(discord.ui.Select):
         else:
             for category_id in selected_values:
                 url = f"https://www.speedrun.com/api/v1/categories/{category_id}"
+                print(url)
                 response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
                 category = response.json()
                 categories[category_id] = {
@@ -193,8 +196,9 @@ class CategorySelectionDropdown(discord.ui.Select):
                 }
 
         settings_dir = bot.settings_dir
-        file_path = os.path.join(settings_dir, "configs", f"{self.game_id}.json")
-        create_dir_if_not_exist(settings_dir)
+        file_path = os.path.join(settings_dir, "configs", self.game_id, f"categories.json")
+        create_file_if_not_exist(file_path)
+        file_path = os.path.join(settings_dir, "configs", self.game_id, f"_{(get_game_name(self.bot, self.game_id))}.txt")
         create_file_if_not_exist(file_path)
         # Convert sets to lists for JSON serialization
         def convert_to_serializable(data):

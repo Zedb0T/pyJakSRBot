@@ -186,8 +186,9 @@ def create_category_json(bot, game_id):
         "categories": categories_info
     }
 
-    file_path = os.path.join(bot.settings_dir, f"configs\\{game_id}.json")
-    create_dir_if_not_exist(bot.settings_dir)
+    file_path = os.path.join(bot.settings, "configs", game_id, f"categories.json")
+    create_file_if_not_exist(file_path)
+    file_path = os.path.join(bot.settings, "configs", game_id, f"_{get_game_name(bot, game_id)}.txt")
     create_file_if_not_exist(file_path)
     with open(file_path, "w") as f:
         json.dump(game_info, f, indent=4)
