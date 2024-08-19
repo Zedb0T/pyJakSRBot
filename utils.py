@@ -18,6 +18,13 @@ def create_dir_if_not_exist(directory):
         print(f"Directory '{directory}' already exists.")
 
 def create_file_if_not_exist(filepath):
+    # Create the directory if it doesn't exist
+    directory = os.path.dirname(filepath)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"Directory '{directory}' created.")
+
+    # Create the file if it doesn't exist
     if not os.path.exists(filepath):
         with open(filepath, 'w') as file:
             pass  # Just open and close the file to create it

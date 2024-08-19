@@ -101,7 +101,8 @@ class RunBot(commands.Bot):
         ]
         await interaction.response.send_message(
             content="Please select a game:",
-            view=GameSelectionView(choices, interaction, self)
+            view=GameSelectionView(choices, interaction, self),
+            ephemeral=True
         )
 
         self.loop.create_task(self.command_processor())
@@ -137,38 +138,33 @@ class GameSelectionDropdown(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected_game_id = self.values[0]
+        guild_id = interaction.guild.id
+        self.bot.settings_dir = os.path.join(self.bot.settings_dir, str(guild_id))
         url = f"https://www.speedrun.com/api/v1/games/{selected_game_id}/categories"
         response = self.bot.http_client.get(url)
         data = response.json()
 
-        if not data['data']:
-            await interaction.response.send_message(f"No categories found for the selected game.", ephemeral=True)
-            return
-
-        categories = [app_commands.Choice(name="All Categories", value="all")]
-        categories += [
-            app_commands.Choice(name=category['name'], value=category['id'])
-            for category in data['data']
+        categories = [
+            {"id": cat['id'], "name": cat['name']}
+            for cat in data['data']
         ]
+
         await interaction.response.send_message(
             content="Please select categories:",
-            view=CategorySelectionView(categories, interaction, self, selected_game_id)
+            view=CategorySelectionView(categories, interaction, self.bot, selected_game_id),
+             ephemeral=True
         )
 
 
 class CategorySelectionView(discord.ui.View):
-    def __init__(self, choices, interaction, bot, game_id):
+    def __init__(self, categories, interaction, bot, game_id):
+        options = [discord.SelectOption(label="All Categories", value="all")] + [discord.SelectOption(label=cat['name'], value=cat['id']) for cat in categories]
         super().__init__()
-        self.interaction = interaction
-        self.bot = bot
-        self.game_id = game_id
-        self.add_item(CategorySelectionDropdown(choices, interaction, bot, game_id))
-
+        self.add_item(CategorySelectionDropdown(options, interaction, bot, game_id))
 
 class CategorySelectionDropdown(discord.ui.Select):
     def __init__(self, choices, interaction, bot, game_id):
-        options = [discord.SelectOption(label=choice.name, value=choice.value) for choice in choices]
-        super().__init__(placeholder="Choose categories...", options=options, max_values=len(choices))
+        super().__init__(placeholder="Choose categories...", options=choices, max_values=len(choices))
         self.interaction = interaction
         self.bot = bot
         self.game_id = game_id
@@ -178,7 +174,7 @@ class CategorySelectionDropdown(discord.ui.Select):
         categories = {}
         if "all" in selected_values:
             url = f"https://www.speedrun.com/api/v1/games/{self.game_id}/categories"
-            response = self.bot.http_client.get(url)
+            response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
             data = response.json()
 
             for category in data['data']:
@@ -189,35 +185,51 @@ class CategorySelectionDropdown(discord.ui.Select):
         else:
             for category_id in selected_values:
                 url = f"https://www.speedrun.com/api/v1/categories/{category_id}"
-                response = self.bot.http_client.get(url)
+                response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
                 category = response.json()
                 categories[category_id] = {
                     "name": category['data']['name'],
                     "subcategories": await self.get_subcategories(category_id)
                 }
 
-        settings_dir = os.path.join(self.bot.settings_dir, str(interaction.guild.id))
+        settings_dir = bot.settings_dir
         file_path = os.path.join(settings_dir, "configs", f"{self.game_id}.json")
+        create_dir_if_not_exist(settings_dir)
+        create_file_if_not_exist(file_path)
+        # Convert sets to lists for JSON serialization
+        def convert_to_serializable(data):
+            if isinstance(data, set):
+                return list(data)
+            elif isinstance(data, dict):
+                return {k: convert_to_serializable(v) for k, v in data.items()}
+            elif isinstance(data, list):
+                return [convert_to_serializable(i) for i in data]
+            else:
+                return data
+
+        serializable_data = {
+            "selected_game_id": self.game_id,
+            "categories": convert_to_serializable(categories)
+        }
 
         with open(file_path, "w") as f:
-            json.dump({"selected_game_id": self.game_id, "categories": categories}, f, indent=4)
+            json.dump(serializable_data, f, indent=4)
 
         await interaction.response.send_message(f"Selected categories saved to {file_path}", ephemeral=True)
 
     async def get_subcategories(self, category_id):
         url = f"https://www.speedrun.com/api/v1/categories/{category_id}/variables"
-        response = self.bot.http_client.get(url)
+        response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
         data = response.json()
 
         subcategories = {}
         for subcategory in data['data']:
             subcategories[subcategory['id']] = {
                 "name": subcategory['name'],
-                "values": {v['label'] for v in subcategory['values']['values'].values()}
+                "values": list(subcategory['values']['values'].values())  # Convert set to list
             }
 
         return subcategories
-
 
 intents = Intents.default()
 intents.messages = True
