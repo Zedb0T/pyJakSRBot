@@ -35,6 +35,7 @@ class RunBot(commands.Bot):
             finally:
                 self.command_queue.task_done()
 
+    #remove this and calls to it at some point
     async def hello(self, interaction: discord.Interaction):
         await interaction.response.send_message(f'Hi, {interaction.user.mention}', ephemeral=True)
 
@@ -56,7 +57,7 @@ class RunBot(commands.Bot):
             countdown_seconds -= 1
 
         print("\nTrying to get new runs...")
-        # await post_new_runs(self)
+        await post_new_runs(self)
 
     async def on_ready(self):
         if not self.synced:
@@ -84,7 +85,11 @@ class RunBot(commands.Bot):
             await self.tree.sync()
             self.synced = True
 
+        self.discord_channel = self.get_channel(self.discord_channel_id)
+        self.loop.create_task(self.command_processor())
         print(f'Logged in as {self.user.name}')
+        self.timer_task.start()
+
 
     async def select_game(self, interaction: discord.Interaction, game_name: str):
         url = f"https://www.speedrun.com/api/v1/games?name={game_name}&max=5"
@@ -105,12 +110,12 @@ class RunBot(commands.Bot):
             ephemeral=True
         )
 
-        self.loop.create_task(self.command_processor())
+
         for guild in bot.guilds:
             create_dir_if_not_exist("settings/" + str(guild.id))
             create_file_if_not_exist("settings/" + str(guild.id) + "/__" + guild.name + ".txt")
-        self.timer_task.start()
-        self.discord_channel = self.get_channel(self.discord_channel_id)
+
+
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -138,6 +143,7 @@ class GameSelectionDropdown(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected_game_id = self.values[0]
+        # Check if the settings directory already contains the guild_id
         guild_id = interaction.guild.id
         if str(guild_id) not in self.bot.settings_dir:
             self.bot.settings_dir = os.path.join(self.bot.settings_dir, str(guild_id))
@@ -173,11 +179,12 @@ class CategorySelectionDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         selected_values = self.values
         categories = {}
+
         if "all" in selected_values:
             url = f"https://www.speedrun.com/api/v1/games/{self.game_id}/categories"
-            print(url)
             response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
             data = response.json()
+            print("All categories response:", data)  # Debugging line
 
             for category in data['data']:
                 categories[category['id']] = {
@@ -187,20 +194,25 @@ class CategorySelectionDropdown(discord.ui.Select):
         else:
             for category_id in selected_values:
                 url = f"https://www.speedrun.com/api/v1/categories/{category_id}"
-                print(url)
                 response = await self.bot.loop.run_in_executor(None, self.bot.http_client.get, url)
                 category = response.json()
+                print(f"Category {category_id} response:", category)  # Debugging line
                 categories[category_id] = {
                     "name": category['data']['name'],
                     "subcategories": await self.get_subcategories(category_id)
                 }
 
-        settings_dir = bot.settings_dir
-        file_path = os.path.join(settings_dir, "configs", self.game_id, f"categories.json")
-        create_file_if_not_exist(file_path)
-        file_path = os.path.join(settings_dir, "configs", self.game_id, f"_{(get_game_name(self.bot, self.game_id))}.txt")
-        create_file_if_not_exist(file_path)
-        # Convert sets to lists for JSON serialization
+        # Ensure directory exists
+        settings_dir = self.bot.settings_dir
+        config_dir = os.path.join(settings_dir, "configs", self.game_id)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+
+        # File path
+        create_file_if_not_exist(os.path.join(config_dir, f"_{get_game_name(bot,self.game_id)}"))
+        file_path = os.path.join(config_dir, f"categories.json")
+
+        # Write to file
         def convert_to_serializable(data):
             if isinstance(data, set):
                 return list(data)
@@ -216,8 +228,12 @@ class CategorySelectionDropdown(discord.ui.Select):
             "categories": convert_to_serializable(categories)
         }
 
-        with open(file_path, "w") as f:
-            json.dump(serializable_data, f, indent=4)
+        try:
+            with open(file_path, "w") as f:
+                json.dump(serializable_data, f, indent=4)
+            print(f"Successfully wrote data to {file_path}")  # Debugging line
+        except Exception as e:
+            print(f"Error writing to file: {e}")
 
         await interaction.response.send_message(f"Selected categories saved to {file_path}", ephemeral=True)
 

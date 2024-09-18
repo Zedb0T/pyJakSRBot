@@ -6,6 +6,8 @@ import config
 import json
 import os
 from utils import *
+import requests
+
 
 async def post_new_runs(bot):
     print("in post_new_runs")
@@ -17,7 +19,8 @@ async def post_new_runs(bot):
     print("out of new_runs")
     for new_run in new_runs:
         embed = Embed(
-            title=f"A new '{new_run.category_name}' run is awaiting verification",
+            title=f"{new_run.user_names} has finished a run of {new_run.game_name or 'Unknown Game'}: {new_run.category_name} with a PB of {new_run.time}.",
+
             color=0x3498db
         )
         embed.set_footer(text=bot.bot_name)
@@ -27,8 +30,9 @@ async def post_new_runs(bot):
         embed.add_field(name="Time:", value=str(new_run.time))
         embed.description = f"[Link]({new_run.link})"
         if config.Post_to_discord:
-            await bot.discord_channel.send(embed=embed)
-
+            print(f"gameID: {new_run.game_id}, channel_id: {get_text_channel_from_gameID(new_run.game_id)} url {new_run.link}")
+            await bot.get_channel(get_text_channel_from_gameID(new_run.game_id)).send(embed=embed)
+        #get_text_channel_from_gameID
     bot.run_links = [run.link for run in runs]
     save_run_links(bot.runs_file_path, bot.run_links)
 
@@ -102,7 +106,8 @@ def get_new_runs(runs, existing_run_links):
         if run.link not in existing_run_links or not config.skip_known_runs:
             new_runs.append(run)
         else:
-            print(f"Skipping run: {run.link} (already in existing run links)")
+            0
+            #print(f"Skipping run: {run.link} (already in existing run links)")
     return new_runs
 
 def get_run_with_id(runs, existing_run_links, runId):
@@ -136,15 +141,102 @@ def parse_runs(bot, json_data):
     runs = []
     for run in json_data['data']:
         link = run['weblink']
-#        user_names = " & ".join(player['names']['international'] for player in run['players']['data'])
-        user_names = "Xyphles"
+        user_names = capitalize_user_names(" & ".join(player['names']['international'] for player in run['players']['data']))
+        #user_names = "Xyphles"
         time = timedelta(seconds=run['times']['primary_t'])
-        category_name = run['category']['data']['name']
         game_id = run['game']
-        game_name = get_game_name(bot, game_id)
+        game_name = get_short_game_name(get_game_name(bot, game_id))
         run_id = run['id']
         #print_keys(run)
-        runs.append(Run(link, user_names, time, category_name, game_id, run_id, game_name))
+        category_name = run['category']['data']['name']
+        category_id = run['category']['data']['id']
+
+        # host = f"https://www.speedrun.com/api/v1/leaderboards/{game_id}/category/{category_id}?embed=game,players,category.variables,level.variables"
+        # print(f"\nFetching leaderboard for category: {category_name} ({category_id})")
+        # print(host)
+
+        # try:
+        #     response = requests.get(host)
+        #     response.raise_for_status()
+        # except requests.exceptions.RequestException as e:
+        #     print(f"HTTP error occurred: {e}")
+        #     continue
+
+        # try:
+        #     json_data = response.json()["data"]
+        # except (json.JSONDecodeError, KeyError) as e:
+        #     print(f"Failed to parse JSON or find 'data' key: {e}")
+        #     continue
+
+
+        # runs = json_data.get("runs", [])
+        # print(f"Number of runs in category '{category_name}':", len(runs))
+
+        # map_of_runs = {}
+
+        # for i, run_data in enumerate(runs):
+        #     run_obj = run_data["run"]
+        #     players_data = json_data["players"]["data"][i]
+
+        #     ghost_src_account = "names" not in players_data.keys()
+
+        #     current_run_id = run_obj["id"]
+        #     current_game_id = run_obj["game"]
+        #     current_category_id = json_data["category"]["data"]["id"]
+        #     current_category_name = category_name
+        #     current_game_name = json_data["game"]["data"]["names"]["international"]
+        #     current_game_prefix = json_data["game"]["data"]["abbreviation"]
+        #     current_game_image_url = json_data["game"]["data"]["assets"]["cover-large"]["uri"]
+        #     current_place = run_data["place"]
+        #     last_place = len(runs)
+        #     current_placement_string = f"{current_place}/{last_place}"
+
+        #     if not ghost_src_account:
+        #         # Safely access 'names' and provide a default if not found
+        #         names = players_data.get("names", {})
+        #         current_player_name = names.get("international", "Unknown").capitalize()
+        #         current_runner_src_profile_pic = players_data.get("assets", {}).get("image", {}).get("uri", "NONE")
+        #     else:
+        #         current_player_name = "ghostSRCaccount"
+        #         current_runner_src_profile_pic = "NoSrcAccount"
+
+        #     # Formatting the time
+        #     primary_time = run_obj["times"]["primary_t"]
+        #     time_delta = timedelta(seconds=primary_time)
+        #     current_formatted_time_string = str(time_delta)
+
+        #     # Check if there's a video link
+        #     video_url = None
+        #     if "videos" in run_obj and run_obj["videos"] and "links" in run_obj["videos"]:
+        #         video_url = run_obj["videos"]["links"][0]["uri"]
+
+        #     run = {
+        #         "runID": current_run_id,
+        #         "categoryName": current_category_name,
+        #         "gameName": current_game_name,
+        #         "runnerSrcProfilePic": current_runner_src_profile_pic,
+        #         "gameID": current_game_id,
+        #         "categoryID": current_category_id,
+        #         "gameImageURL": current_game_image_url,
+        #         "videolink": video_url,
+        #         "place": current_placement_string,
+        #         "purePlace": current_place,
+        #         "time": current_formatted_time_string,
+        #         "playerName": current_player_name,
+        #         "prefix": current_game_prefix
+        #     }
+
+        #     map_of_runs[current_run_id] = run
+        # game_dir = sanitize_filename(game_name)
+        # # Save the category data to a JSON file in the directory
+        # category_filename = os.path.join(game_dir, f"{sanitize_filename(category_name)}.json")
+        # with open(category_filename, 'w') as json_file:
+        #     json.dump(map_of_runs, json_file, indent=4)
+        # print(f"Data for category '{category_name}' saved to {category_filename}")
+
+    print("Data saved into separate JSON files.")
+
+    runs.append(Run(link, user_names, time, category_name, game_id, run_id, game_name))
     return runs
 
 def create_category_json(bot, game_id):
@@ -195,5 +287,4 @@ def create_category_json(bot, game_id):
 
 
 if __name__ == "__main__":
-# Import the bot.py script
     import bot
